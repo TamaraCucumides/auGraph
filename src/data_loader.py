@@ -3,14 +3,16 @@ import json
 import pandas as pd
 
 class RelationalDatabase:
-    def __init__(self, tables: dict, foreign_keys: list):
+    def __init__(self, tables: dict, foreign_keys: list, primary_keys: dict):
         """
         Args:
-            tables (dict): table_name -> pandas DataFrame
-            foreign_keys (list): list of (src_table, src_col, dst_table, dst_col)
+            tables (dict): table_name -> DataFrame
+            foreign_keys (list): (src_table, src_col, dst_table, dst_col)
+            primary_keys (dict): table_name -> primary key column
         """
         self.tables = tables
         self.foreign_keys = foreign_keys
+        self.primary_keys = primary_keys
 
     def get_table(self, name):
         return self.tables[name]
@@ -20,17 +22,30 @@ class RelationalDatabase:
 
     def get_all_attributes(self, exclude_keys=True):
         """
-        Return all (table, attribute) pairs excluding FK and PK columns if requested.
+        Return all (table, attribute) pairs for possible promotion.
+        
+        f exclude_keys=True, primary and foreign keys are excluded.
         """
         all_attrs = []
-        fk_keys = set((src_table, src_col) for src_table, src_col, _, _ in self.foreign_keys)
-        pk_keys = set((t, f"{t[:-1]}_id") for t in self.tables)  # crude pk heuristic
+
+        # Set of (table, column) pairs to exclude
+        key_columns = set()
+
+        if exclude_keys:
+            # Add all PKs
+            for table, pk_col in self.primary_keys.items():
+                key_columns.add((table, pk_col))
+
+            # Add all FKs
+            for src_table, src_col, _, _ in self.foreign_keys:
+                key_columns.add((src_table, src_col))
 
         for table_name, df in self.tables.items():
             for col in df.columns:
-                if exclude_keys and ((table_name, col) in fk_keys or (table_name, col) in pk_keys):
+                if (table_name, col) in key_columns:
                     continue
                 all_attrs.append((table_name, col))
+
         return all_attrs
 
     def print_schema(self):
@@ -41,31 +56,24 @@ class RelationalDatabase:
 
 
 def load_relational_data(data_dir: str) -> RelationalDatabase:
-    """
-    Load relational database from CSVs and a schema.json file.
-
-    Args:
-        data_dir (str): Path to folder containing schema.json and tables.
-
-    Returns:
-        RelationalDatabase object
-    """
     schema_path = os.path.join(data_dir, "schema.json")
-
     with open(schema_path, "r") as f:
         schema = json.load(f)
 
-    tables = {}
-    for table_name in schema["tables"]:
-        path = os.path.join(data_dir, f"{table_name}.csv")
-        tables[table_name] = pd.read_csv(path)
+    tables = {
+        table_name: pd.read_csv(os.path.join(data_dir, f"{table_name}.csv"))
+        for table_name in schema["tables"]
+    }
 
-    foreign_keys = schema["foreign_keys"]
-
-    return RelationalDatabase(tables=tables, foreign_keys=foreign_keys)
+    return RelationalDatabase(
+        tables=tables,
+        foreign_keys=schema["foreign_keys"],
+        primary_keys=schema["primary_keys"]
+    )
 
 
 if __name__ == "__main__":
+    print("Data loader test")
     db = load_relational_data("data/toy")
     db.print_schema()
 
