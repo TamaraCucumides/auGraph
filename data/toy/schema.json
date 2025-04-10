@@ -1,0 +1,8 @@
+{
+    "tables": ["customers", "orders", "products", "shops"],
+    "foreign_keys": [
+      ["orders", "customer_id", "customers", "customer_id"],
+      ["orders", "product_id", "products", "product_id"],
+      ["products", "shop_id", "shops", "shop_id"]
+    ]
+  }

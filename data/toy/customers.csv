@@ -1,0 +1,6 @@
+customer_id,name,age,occupation,high_spender
+1,Alice,34,Engineer,1
+2,Bob,23,Student,0
+3,Carol,45,Doctor,1
+4,David,31,Engineer,0
+5,Eve,52,Retired,1

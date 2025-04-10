@@ -1,0 +1,5 @@
+product_id,name,category,price,shop_id
+201,Laptop,Electronics,1000,301
+202,Notebook,Stationery,5,302
+203,Smartphone,Electronics,500,301
+204,Pen,Stationery,2,302
