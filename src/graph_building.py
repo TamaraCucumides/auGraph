@@ -1,4 +1,4 @@
-from data_loader import RelationalDatabase
+from data_loader import load_relational_data
 from torch_geometric.data import HeteroData
 import torch
 import pandas as pd
@@ -57,20 +57,85 @@ def build_fk_graph(db):
 
     return data, node_id_maps
 
-def promote_attribute(graph, db: RelationalDatabase, table: str, attribute: str):
+def promote_attribute(
+    graph,
+    db,
+    table: str,
+    attribute: str,
+    node_id_map: dict,
+    modify_db: bool = False
+):
     """
-    Add a new node type for attribute values and connect matching rows from the specified table.
+    Promote a categorical attribute into a node type and connect entities to their attribute values.
 
     Args:
-        graph: The existing FK graph
-        db: The relational database object
-        table (str): Table where attribute is defined
-        attribute (str): Name of the attribute to promote
-
-    Returns:
-        Augmented graph with new nodes and edges
+        graph (HeteroData): Current heterogeneous graph.
+        db (RelationalDatabase): Database containing tables and schema.
+        table (str): Table where the attribute is defined.
+        attribute (str): Attribute to promote.
+        node_id_map (dict): Maps each table to {primary_key_value -> node index}.
+        modify_db (bool): Whether to update db with virtual table + FK.
     """
-    pass
+    df = db.get_table(table)
+    pk = db.primary_keys[table]
+
+    # Get all unique attribute values
+    values = df[attribute].dropna().unique().tolist()
+    value_to_index = {val: idx for idx, val in enumerate(values)}
+
+    # Add new node type for attribute values
+    num_values = len(values)
+    attr_node_type = attribute  # node type name = attribute name
+    graph[attr_node_type].x = torch.eye(num_values)  # dummy one-hot features
+    graph[attr_node_type].value_strings = values     # for debugging/lookup
+
+    # Create edges: (entity → attribute value)
+    src_nodes = []
+    dst_nodes = []
+
+    for _, row in df.iterrows():
+        if pd.isna(row[attribute]) or pd.isna(row[pk]):
+            continue
+
+        attr_val = row[attribute]
+        entity_id = row[pk]
+
+        if attr_val in value_to_index and entity_id in node_id_map[table]:
+            src_idx = node_id_map[table][entity_id]
+            dst_idx = value_to_index[attr_val]
+
+            src_nodes.append(src_idx)
+            dst_nodes.append(dst_idx)
+
+    edge_index = torch.tensor([src_nodes, dst_nodes], dtype=torch.long)
+    edge_type = (table, f"has_{attribute}", attribute)
+    graph[edge_type].edge_index = edge_index
+
+    if modify_db:
+        # Simulate schema change: new "table" for the attribute
+        attr_df = pd.DataFrame({
+            f"{attribute}_id": values
+        })
+        db.tables[attribute] = attr_df
+        db.primary_keys[attribute] = f"{attribute}_id"
+
+        # Add new "foreign key" from original table to this new virtual table
+        db.foreign_keys.append((table, attribute, attribute, f"{attribute}_id"))
+
+    return graph  # note: graph is also modified in-place
 
 if __name__ == "__main__":
     print("Graph Builder Test")
+
+    # First try the graph construction
+    db = load_relational_data("data/toy")
+    graph, id_maps = build_fk_graph(db)
+
+    print(graph)
+
+    # Try the attribute promotion on the graph
+
+    graph = promote_attribute(graph, db, table="customers", attribute="occupation", node_id_map=id_maps, modify_db=True)
+    print(graph)
+    db.print_schema()
+
