@@ -1,5 +1,5 @@
 from sklearn.metrics import mutual_info_score as sklearn_mi
-from src.utils import join_path_tables
+from utils import join_path_tables
 import networkx as nx
 
 def score_attribute(graph, db, table: str, attribute: str, labels: dict, method: str) -> float:
@@ -43,21 +43,33 @@ def mutual_info_score(
     if table == task_table:
         df = db.get_table(table)[[attribute, task_label]].dropna()
         if df.empty:
+            print("Empty dataframe")
             return 0.0
         return sklearn_mi(df[attribute], df[task_label])
 
     # Path already guaranteed to exist
     path = nx.shortest_path(db.schema_graph, source=table, target=task_table)
+    if path[0] != table:
+        path = list(reversed(path))
+
     joined = join_path_tables(db, path)
 
-    label_col = task_label if task_table == path[-1] else f"{task_table}__{task_label}"
+    print("Columns in joined DataFrame:")
+    print(joined.columns.tolist())
+
+    # Assume `path` has already been computed and join has happened
     attr_col = attribute if table == path[0] else f"{table}__{attribute}"
+    label_col = task_label if task_table == path[0] else f"{task_table}__{task_label}"
+
+    print(attr_col, label_col)
 
     if label_col not in joined.columns or attr_col not in joined.columns:
+        print("Columns not found")
         return 0.0
 
     df = joined[[attr_col, label_col]].dropna()
     if df.empty:
+        print("Empty joined")
         return 0.0
 
     return sklearn_mi(df[attr_col], df[label_col])
