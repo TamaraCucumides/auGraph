@@ -76,6 +76,29 @@ class RelationalDatabase:
 
         return promotable
 
+    def get_fk_path(self, source: str, target: str, max_depth: int = 2):
+        """
+        Find a FK path between `source` and `target` tables in the schema graph,
+        constrained by `max_depth`. Returns a list of table names or None.
+        """
+        if not hasattr(self, "schema_graph"):
+            # Build if not yet initialized
+            import networkx as nx
+            self.schema_graph = nx.Graph()
+            for src, _, dst, _ in self.foreign_keys:
+                self.schema_graph.add_edge(src, dst)
+
+        if source not in self.schema_graph or target not in self.schema_graph:
+            return None
+
+        try:
+            path = nx.shortest_path(self.schema_graph, source=source, target=target)
+            if len(path) - 1 <= max_depth:
+                return path
+            return None
+        except nx.NetworkXNoPath:
+            return None
+
     def print_schema(self):
         print("Tables:", list(self.tables.keys()))
         print("Foreign Keys:")
@@ -107,3 +130,6 @@ if __name__ == "__main__":
 
     print("Available attributes for promotion:")
     print(db.get_all_attributes())
+
+    print("Max depth = 2")
+    print(db.get_all_attributes(label_table="customers", max_depth=2))
