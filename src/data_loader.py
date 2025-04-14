@@ -1,6 +1,7 @@
 import os
 import json
 import pandas as pd
+import networkx as nx
 
 class RelationalDatabase:
     def __init__(self, tables: dict, foreign_keys: list, primary_keys: dict):
@@ -20,33 +21,60 @@ class RelationalDatabase:
     def get_foreign_keys(self):
         return self.foreign_keys
 
-    def get_all_attributes(self, exclude_keys=True):
+    def get_all_attributes(self, exclude_keys=True, label_table=None, max_depth=None):
         """
-        Return all (table, attribute) pairs for possible promotion.
-        
-        f exclude_keys=True, primary and foreign keys are excluded.
-        """
-        all_attrs = []
+        Return a list of (table, attribute) pairs that are promotable.
 
-        # Set of (table, column) pairs to exclude
+        If label_table and max_depth are specified, restrict to attributes reachable via FK paths of length ≤ max_depth.
+
+        Args:
+            exclude_keys (bool): Exclude PK and FK columns
+            label_table (str or None): If specified, only return attributes reachable from this table
+            max_depth (int or None): FK path limit from label_table
+
+        Returns:
+            List of (table, attribute) pairs
+        """
+        # Build schema graph if needed
+        if not hasattr(self, "schema_graph"):
+            self.schema_graph = nx.Graph()
+            for src, _, dst, _ in self.foreign_keys:
+                self.schema_graph.add_edge(src, dst)
+
+        # Build set of key columns to exclude
         key_columns = set()
-
         if exclude_keys:
-            # Add all PKs
-            for table, pk_col in self.primary_keys.items():
-                key_columns.add((table, pk_col))
+            for table, pk in self.primary_keys.items():
+                key_columns.add((table, pk))
+            for src, src_col, _, _ in self.foreign_keys:
+                key_columns.add((src, src_col))
 
-            # Add all FKs
-            for src_table, src_col, _, _ in self.foreign_keys:
-                key_columns.add((src_table, src_col))
+        # Determine which tables are reachable from label_table
+        if label_table and max_depth is not None:
+            # BFS traversal
+            reachable_tables = set()
+            queue = [(label_table, 0)]
+            visited = set()
 
-        for table_name, df in self.tables.items():
-            for col in df.columns:
-                if (table_name, col) in key_columns:
+            while queue:
+                current, depth = queue.pop(0)
+                if current in visited or depth > max_depth:
                     continue
-                all_attrs.append((table_name, col))
+                visited.add(current)
+                reachable_tables.add(current)
+                for neighbor in self.schema_graph.neighbors(current):
+                    queue.append((neighbor, depth + 1))
+        else:
+            reachable_tables = set(self.tables.keys())
 
-        return all_attrs
+        # Collect promotable attributes
+        promotable = []
+        for table in reachable_tables:
+            for col in self.tables[table].columns:
+                if (table, col) not in key_columns:
+                    promotable.append((table, col))
+
+        return promotable
 
     def print_schema(self):
         print("Tables:", list(self.tables.keys()))
