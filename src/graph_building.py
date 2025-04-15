@@ -2,6 +2,7 @@ from data_loader import load_relational_data
 from torch_geometric.data import HeteroData
 import torch
 import pandas as pd
+import copy
 
 def build_fk_graph(db):
     """
@@ -63,7 +64,8 @@ def promote_attribute(
     table: str,
     attribute: str,
     node_id_map: dict,
-    modify_db: bool = False
+    modify_db: bool = False,
+    inplace: bool = False
 ):
     """
     Promote a categorical attribute into a node type and connect entities to their attribute values.
@@ -75,7 +77,14 @@ def promote_attribute(
         attribute (str): Attribute to promote.
         node_id_map (dict): Maps each table to {primary_key_value -> node index}.
         modify_db (bool): Whether to update db with virtual table + FK.
+        inplace (bool): If True, modifies the graph in place; otherwise returns a copy.
+
+    Returns:
+        HeteroData: either the modified graph or a copy, depending on `inplace`.
     """
+    if not inplace:
+        graph = copy.deepcopy(graph)
+
     df = db.get_table(table)
     pk = db.primary_keys[table]
 
@@ -85,25 +94,21 @@ def promote_attribute(
 
     # Add new node type for attribute values
     num_values = len(values)
-    attr_node_type = attribute  # node type name = attribute name
-    graph[attr_node_type].x = torch.eye(num_values)  # dummy one-hot features
-    graph[attr_node_type].value_strings = values     # for debugging/lookup
+    attr_node_type = attribute
+    graph[attr_node_type].x = torch.eye(num_values)
+    graph[attr_node_type].value_strings = values
 
     # Create edges: (entity → attribute value)
-    src_nodes = []
-    dst_nodes = []
+    src_nodes, dst_nodes = [], []
 
     for _, row in df.iterrows():
         if pd.isna(row[attribute]) or pd.isna(row[pk]):
             continue
-
         attr_val = row[attribute]
         entity_id = row[pk]
-
         if attr_val in value_to_index and entity_id in node_id_map[table]:
             src_idx = node_id_map[table][entity_id]
             dst_idx = value_to_index[attr_val]
-
             src_nodes.append(src_idx)
             dst_nodes.append(dst_idx)
 
@@ -112,30 +117,56 @@ def promote_attribute(
     graph[edge_type].edge_index = edge_index
 
     if modify_db:
-        # Simulate schema change: new "table" for the attribute
-        attr_df = pd.DataFrame({
-            f"{attribute}_id": values
-        })
+        attr_df = pd.DataFrame({f"{attribute}_id": values})
         db.tables[attribute] = attr_df
         db.primary_keys[attribute] = f"{attribute}_id"
-
-        # Add new "foreign key" from original table to this new virtual table
         db.foreign_keys.append((table, attribute, attribute, f"{attribute}_id"))
 
-    return graph  # note: graph is also modified in-place
+    return graph
 
 if __name__ == "__main__":
-    print("Graph Builder Test")
+    print("=== Graph Builder Test ===")
 
-    # First try the graph construction
+    # 1. Load the database and build the initial graph
     db = load_relational_data("data/toy")
     graph, id_maps = build_fk_graph(db)
 
+    print("\n[Original Graph]")
+    print(graph)
+    db.print_schema()
+
+    # 2. Promote with inplace=False (should NOT change the original graph)
+    print("\n[Test 1] Promote attribute with inplace=False")
+    graph_copy = promote_attribute(
+        graph,
+        db,
+        table="customers",
+        attribute="occupation",
+        node_id_map=id_maps,
+        modify_db=False,
+        inplace=False
+    )
+
+    print("→ Modified graph (copy):", graph_copy)
+    print("→ Original graph still unchanged:")
     print(graph)
 
-    # Try the attribute promotion on the graph
+    # 3. Promote with inplace=True (should modify the original graph)
+    print("\n[Test 2] Promote attribute with inplace=True")
+    graph = promote_attribute(
+        graph,
+        db,
+        table="customers",
+        attribute="occupation",
+        node_id_map=id_maps,
+        modify_db=False,
+        inplace=True
+    )
 
-    graph = promote_attribute(graph, db, table="customers", attribute="occupation", node_id_map=id_maps, modify_db=True)
+    print("→ Graph after inplace promotion:")
     print(graph)
+
+    # 4. Inspect schema (should be unchanged unless modify_db=True was used)
+    print("\n[Current Schema]")
     db.print_schema()
 
