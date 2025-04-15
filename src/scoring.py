@@ -1,6 +1,8 @@
 from sklearn.metrics import mutual_info_score as sklearn_mi
-from utils import join_path_tables
+from utils import join_path_tables, get_label_entropies
+from graph_building import promote_attribute
 import networkx as nx
+import copy
 
 def score_attribute(graph, db, table: str, attribute: str, labels: dict, method: str) -> float:
     """
@@ -74,12 +76,53 @@ def mutual_info_score(
 
     return sklearn_mi(df[attr_col], df[label_col])
 
-def label_entropy_gain(graph, db, table: str, attribute: str, labels: dict) -> float:
+
+def label_entropy_gain(
+    graph,
+    db,
+    table: str,
+    attribute: str,
+    labels: dict,
+    target_table: str,
+    node_id_map: dict,
+    k_hops: int
+) -> float:
     """
-    Simulate promoting the attribute and compute average label entropy reduction
-    in local neighborhoods.
+    Compute the reduction in average label entropy over k-hop neighborhoods
+    of nodes in the target_table, after promoting a given attribute.
+
+    Args:
+        graph (HeteroData): Original FK-based graph.
+        db (RelationalDatabase): Database for schema and data access.
+        table (str): Table where the attribute is defined.
+        attribute (str): Name of the attribute to promote.
+        labels (dict): Mapping from primary key → label for target_table nodes.
+        target_table (str): Table where the label nodes live.
+        node_id_map (dict): Table → {pk → node index} mapping.
+        k_hops (int): Neighborhood radius to evaluate entropy over (should be 2 * join depth).
+
+    Returns:
+        float: Average reduction in label entropy (positive is better).
     """
-    pass
+    # Measure before
+    entropy_before = get_label_entropies(graph, target_table, labels, node_id_map, k_hops)
+    print("Entropy before:", entropy_before)
+
+    # Promote attribute and measure again
+    graph_aug = promote_attribute(
+        graph,
+        db,
+        table=table,
+        attribute=attribute,
+        node_id_map=node_id_map,
+        modify_db=False,
+        inplace=False
+    )
+
+    entropy_after = get_label_entropies(graph_aug, target_table, labels, node_id_map, k_hops)
+    print("Entropy after:", entropy_after)
+
+    return entropy_before - entropy_after
 
 def wl_refinement_gain(graph, db, table: str, attribute: str, labels: dict) -> float:
     """

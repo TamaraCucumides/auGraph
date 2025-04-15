@@ -1,4 +1,8 @@
 import pandas as pd
+import numpy as np
+from scipy.stats import entropy
+from collections import deque
+from torch_geometric.utils import k_hop_subgraph
 
 def join_path_tables(db, path):
     """
@@ -75,3 +79,61 @@ def join_path_tables(db, path):
                 joined[fk_col] = right_df[fk_col]
 
     return joined
+
+
+def get_label_entropies(graph, target_table, labels, node_id_map, k_hops):
+    """
+    Computes average label entropy for each node in the target table over its k-hop neighborhood.
+
+    Args:
+        graph (HeteroData): PyG heterogeneous graph
+        target_table (str): name of the table (node type) with labels
+        labels (dict): maps PK values → label (e.g., {1: 0, 2: 1, ...})
+        node_id_map (dict): table → {pk → node_index}
+        k_hops (int): number of hops to consider for neighborhood
+
+    Returns:
+        float: average neighborhood label entropy across all target_table nodes
+    """
+    if target_table not in graph.node_types:
+        raise ValueError(f"Target node type '{target_table}' not found in graph.")
+
+    index_to_label = {
+        node_id_map[target_table][pk]: lbl
+        for pk, lbl in labels.items()
+        if pk in node_id_map[target_table]
+    }
+
+    edge_index_dict = graph.edge_index_dict
+    entropies = []
+
+    for center_node in index_to_label.keys():
+        # BFS over heterogeneous edges
+        visited = set([center_node])
+        frontier = deque([center_node])
+
+        for _ in range(k_hops):
+            next_frontier = set()
+            for (src_type, rel, dst_type), edge_index in edge_index_dict.items():
+                # check both directions (src → dst and dst → src)
+                for direction in [(0, 1), (1, 0)]:
+                    src, dst = edge_index[direction[0]], edge_index[direction[1]]
+                    mask = np.isin(src.numpy(), list(frontier))
+                    neighbors = dst[mask].tolist()
+                    next_frontier.update(neighbors)
+            frontier = next_frontier - visited
+            visited.update(frontier)
+
+        # Collect labels in the k-hop neighborhood
+        neighbor_labels = [index_to_label[idx] for idx in visited if idx in index_to_label]
+
+        if not neighbor_labels:
+            continue
+
+        counts = np.bincount(neighbor_labels)
+        probs = counts / counts.sum()
+        ent = entropy(probs, base=2)
+        entropies.append(ent)
+
+    return float(np.mean(entropies)) if entropies else 0.0
+
