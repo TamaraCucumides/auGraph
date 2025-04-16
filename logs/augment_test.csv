@@ -1,0 +1,5 @@
+step,table,attribute,score,method,k_hops,num_node_types,num_edge_types
+1,customers,name,0.5004024235381879,mutual_info,2,5,4
+2,customers,age,0.5004024235381879,mutual_info,2,6,5
+3,customers,occupation,0.22314355131420968,mutual_info,2,7,6
+4,customers,high_spender,0.11849392256130009,mutual_info,2,8,7

@@ -94,7 +94,7 @@ entropy_result = get_label_entropies(
 
 print(f"→ Average neighborhood entropy: {entropy_result:.4f}") """
 
-from data_loader import load_relational_data
+""" from data_loader import load_relational_data
 from graph_building import build_fk_graph, promote_attribute
 from scoring import label_entropy_gain
 import networkx as nx
@@ -139,7 +139,7 @@ score1 = label_entropy_gain(
     labels=labels,
     target_table=task_table,
     node_id_map=node_id_map,
-    k_hops=2
+    k_hops=3
 )
 
 score2 = label_entropy_gain(
@@ -150,8 +150,61 @@ score2 = label_entropy_gain(
     labels=labels,
     target_table=task_table,
     node_id_map=node_id_map,
-    k_hops=2
+    k_hops=3
 )
 
 print(f"Label Entropy Gain (customers.occupation): {score1:.4f}")
-print(f"Label Entropy Gain (products.category): {score2:.4f}")
+print(f"Label Entropy Gain (products.category): {score2:.4f}") """
+
+from data_loader import load_relational_data
+from graph_building import build_fk_graph
+from augmentor import augment_graph
+import networkx as nx
+
+print("### Start test script ###")
+
+# --- 1. Load the toy relational database ---
+db = load_relational_data("data/toy")
+
+# --- 2. Define the prediction task ---
+task_table = "customers"
+task_label = "high_spender"
+
+# Labels: primary key → label
+labels = {
+    1: 0,  # Alice
+    2: 1,  # Bob
+    3: 1,  # Carol
+    4: 1,  # David
+    5: 1   # Eve
+}
+
+# --- 3. Build schema graph (for FK logic) ---
+db.schema_graph = nx.Graph()
+for src, _, dst, _ in db.foreign_keys:
+    db.schema_graph.add_edge(src, dst)
+
+# --- 4. Build FK-based PyG graph and node index map ---
+graph, node_id_map = build_fk_graph(db)
+
+# --- 5. Run the augmentor ---
+aug_graph, selected = augment_graph(
+    db=db,
+    initial_graph=graph,
+    labels=labels,
+    node_id_map=node_id_map,
+    scoring_method="mutual_info",        # or "mutual_info"
+    label_table=task_table,
+    label_column=task_label,
+    k_hops=2,                              # 2 * max_depth is a good rule of thumb
+    max_attributes=4,
+    threshold=0.00,
+    max_depth=2,
+    verbose=True,
+    log_path="logs/augment_test.csv"
+)
+
+# --- 6. Print the result ---
+print("\nSelected attributes:")
+for table, attr, score in selected:
+    print(f"→ {table}.{attr} (score = {score:.4f})")
