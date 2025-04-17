@@ -9,7 +9,7 @@ import random
 
 def create_random_dict(n, num_classes, seed=42):
     random.seed(seed)  # Set the seed for reproducibility
-    return {i: random.randint(1, num_classes) for i in range(1, n + 1)}
+    return {i: random.randint(0, num_classes-1) for i in range(1, n + 1)}
 
 def add_reverse_edges(data):
     """

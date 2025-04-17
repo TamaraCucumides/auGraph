@@ -2,6 +2,8 @@ from data_loader import load_relational_data
 from graph_building import build_fk_graph
 from augmentor import augment_graph
 from utils import create_random_dict, assign_node_labels, split_node_labels
+from models import GNN
+from training import train_model, evaluate_model
 import torch
 
 print("### Start test script ###")
@@ -16,6 +18,8 @@ db = load_relational_data("data/synthetic")
 task_table = "users"
 num_classes = 3
 labels = create_random_dict(200, num_classes) #TODO: change this into a df
+
+print("LABELS", labels)
 
 # --- 3. Build FK graph ---
 graph, node_id_map = build_fk_graph(db)
@@ -41,7 +45,7 @@ aug_graph, selected = augment_graph(
     initial_graph=graph,
     labels=labels_trainval,
     node_id_map=node_id_map,
-    scoring_method="entropy_gain",
+    scoring_method="mutual_info",
     label_table=task_table,
     k_hops=2,
     max_attributes=4,
@@ -56,5 +60,36 @@ assign_node_labels(aug_graph, labels, node_id_map, node_type=task_table)
 for split in ['train_mask', 'val_mask', 'test_mask']:
     aug_graph[task_table][split] = graph[task_table][split].clone()
 
-# --- 8. Train GNN ---
+# --- 8. Train and test GNN ---
+
+aug_graph = aug_graph.to(device)
+
+# Define model
+model = GNN(
+    metadata=aug_graph.metadata(),
+    hidden_channels=64,
+    out_channels=num_classes,
+    target_node=task_table
+).to(device)
+
+# Optimizer and loss
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+loss_fn = torch.nn.CrossEntropyLoss()
+
+# Train
+print("### Start training ###")
+train_model(
+    model=model,
+    graph=aug_graph,
+    node_type=task_table,
+    optimizer=optimizer,
+    loss_fn=loss_fn,
+    epochs=10,
+    verbose=True
+)
+
+# Evaluate
+print("### Final Test Evaluation ###")
+test_acc = evaluate_model(model, aug_graph, node_type=task_table, split="test")
+print(f"Test Accuracy: {test_acc:.4f}")
 
