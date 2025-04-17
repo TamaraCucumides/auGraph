@@ -3,6 +3,11 @@ import numpy as np
 from scipy.stats import entropy
 from collections import deque
 from torch_geometric.utils import k_hop_subgraph
+import random
+
+def create_random_dict(n, seed=42):
+    random.seed(seed)  # Set the seed for reproducibility
+    return {i: random.randint(1, 3) for i in range(1, n + 1)}
 
 def join_path_tables(db, path):
     """

@@ -74,6 +74,7 @@ def mutual_info_score(
     pk_target = db.primary_keys[target_table]
 
     # Create temporary label DataFrame
+    #TODO: replace the input with a DF itself, with labels
     label_df = pd.DataFrame([{pk_target: pk, label_col: y} for pk, y in labels.items()])
 
     if table == target_table:
@@ -104,6 +105,7 @@ def mutual_info_score(
     return sklearn_mi(df[attr_col], df[label_col])
 
 
+#TODO: optimize this function for GPU use. 
 def label_entropy_gain(
     graph,
     db,

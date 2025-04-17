@@ -159,24 +159,19 @@ print(f"Label Entropy Gain (products.category): {score2:.4f}") """
 from data_loader import load_relational_data
 from graph_building import build_fk_graph
 from augmentor import augment_graph
+from utils import create_random_dict
 
 print("### Start test script ###")
 
 # --- 1. Load the toy relational database ---
-db = load_relational_data("data/toy")
+db = load_relational_data("data/synthetic")
 
 # --- 2. Define the prediction task ---
-task_table = "customers"
-task_label = "high_spender"
+task_table = "users" #toy is customers, synthetic is users
+#task_label = "high_spender"
 
 # Labels: primary key → label
-labels = {
-    1: 0,  # Alice
-    2: 1,  # Bob
-    3: 1,  # Carol
-    4: 1,  # David
-    5: 1   # Eve
-}
+labels = create_random_dict(200) #toy is 5, synthetic is 200
 
 # --- 4. Build FK-based PyG graph and node index map ---
 graph, node_id_map = build_fk_graph(db)
@@ -187,10 +182,10 @@ aug_graph, selected = augment_graph(
     initial_graph=graph,
     labels=labels,
     node_id_map=node_id_map,
-    scoring_method="mutual_info",        # or "mutual_info"
+    scoring_method="entropy_gain",        # "mutual_info" or "entropy_gain"
     label_table=task_table,
-    label_column=task_label,
-    k_hops=3,                              # 2 * max_depth is a good rule of thumb
+    #label_column=task_label,
+    k_hops=2,                              # 2 * max_depth is a good rule of thumb
     max_attributes=4,
     threshold=0.00,
     max_depth=2,

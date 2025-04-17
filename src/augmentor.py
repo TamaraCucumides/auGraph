@@ -12,7 +12,7 @@ def batch_score_attributes(
     node_id_map,
     scoring_method: str,
     label_table: str,
-    label_column: str,
+    #label_column: str,
     k_hops: int,
     max_depth: int = None,
     candidate_subset: list = None
@@ -42,7 +42,7 @@ def batch_score_attributes(
             labels=labels,
             method=scoring_method,
             task_table=label_table,
-            task_label=label_column,
+            #task_label=label_column,
             target_table=label_table,
             node_id_map=node_id_map,
             k_hops=k_hops
@@ -60,7 +60,7 @@ def augment_graph(
     node_id_map,
     scoring_method: str,
     label_table: str,
-    label_column: str,
+    #label_column: str,
     k_hops: int = 2,
     max_attributes: int = 5,
     threshold: float = 0.0,
@@ -94,7 +94,7 @@ def augment_graph(
             node_id_map=node_id_map,
             scoring_method=scoring_method,
             label_table=label_table,
-            label_column=label_column,
+            #label_column=label_column,
             k_hops=k_hops,
             max_depth=max_depth,
             candidate_subset=candidates
