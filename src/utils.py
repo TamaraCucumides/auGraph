@@ -2,12 +2,14 @@ import pandas as pd
 import numpy as np
 from scipy.stats import entropy
 from collections import deque
-from torch_geometric.utils import k_hop_subgraph
+#from torch_geometric.utils import k_hop_subgraph #relevant for optimizing after, probably
+import torch
+from torch_geometric.data import HeteroData
 import random
 
-def create_random_dict(n, seed=42):
+def create_random_dict(n, num_classes, seed=42):
     random.seed(seed)  # Set the seed for reproducibility
-    return {i: random.randint(1, 3) for i in range(1, n + 1)}
+    return {i: random.randint(1, num_classes) for i in range(1, n + 1)}
 
 def join_path_tables(db, path):
     """
@@ -141,4 +143,68 @@ def get_label_entropies(graph, target_table, labels, node_id_map, k_hops):
         entropies.append(ent)
 
     return float(np.mean(entropies)) if entropies else 0.0
+
+
+def assign_node_labels(graph: HeteroData,
+                       labels: dict,
+                       node_id_map: dict,
+                       node_type: str,
+                       label_key: str = 'y') -> None:
+    """
+    Assign labels to a node type in a HeteroData object.
+
+    Args:
+        graph (HeteroData): The heterogeneous graph.
+        labels (dict): A mapping {primary_key: label}.
+        node_id_map (dict): Maps {table_name: {primary_key: node_idx}}.
+        node_type (str): The node type to assign labels to (e.g., 'users').
+        label_key (str): The field to write the labels to. Defaults to 'y'.
+
+    Returns:
+        None. Modifies the `graph` in-place by setting `graph[node_type][label_key]`.
+    """
+    num_nodes = graph[node_type]['x'].shape[0]
+    label_tensor = torch.full((num_nodes,), -1, dtype=torch.long)
+
+    pk_to_idx = node_id_map.get(node_type, {})
+    for pk, label in labels.items():
+        if pk in pk_to_idx:
+            idx = pk_to_idx[pk]
+            label_tensor[idx] = label
+
+    graph[node_type][label_key] = label_tensor
+
+
+def split_node_labels(graph, node_type: str, label_key: str = 'y',
+                      train_ratio=0.6, val_ratio=0.2, test_ratio=0.2,
+                      seed=42):
+    """
+    Randomly splits labeled nodes into train/val/test masks.
+
+    Modifies graph[node_type] in-place by setting train_mask, val_mask, test_mask.
+    """
+    assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-5, "Ratios must sum to 1"
+
+    y = graph[node_type][label_key]
+    labeled_idx = (y >= 0).nonzero(as_tuple=False).view(-1)
+    
+    # Set random seed for reproducibility
+    torch.manual_seed(seed)
+    perm = torch.randperm(len(labeled_idx))
+
+    n_train = int(train_ratio * len(labeled_idx))
+    n_val = int(val_ratio * len(labeled_idx))
+
+    train_idx = labeled_idx[perm[:n_train]]
+    val_idx = labeled_idx[perm[n_train:n_train + n_val]]
+    test_idx = labeled_idx[perm[n_train + n_val:]]
+
+    mask = torch.zeros(y.shape[0], dtype=torch.bool)
+    graph[node_type]['train_mask'] = mask.clone()
+    graph[node_type]['val_mask'] = mask.clone()
+    graph[node_type]['test_mask'] = mask.clone()
+
+    graph[node_type]['train_mask'][train_idx] = True
+    graph[node_type]['val_mask'][val_idx] = True
+    graph[node_type]['test_mask'][test_idx] = True
 
