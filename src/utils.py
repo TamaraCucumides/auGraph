@@ -2,10 +2,13 @@ import pandas as pd
 import numpy as np
 from scipy.stats import entropy
 from collections import deque
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sentence_transformers import SentenceTransformer
 #from torch_geometric.utils import k_hop_subgraph #relevant for optimizing after, probably
 import torch
 from torch_geometric.data import HeteroData
 import random
+
 
 def create_random_dict(n, num_classes, seed=42):
     random.seed(seed)  # Set the seed for reproducibility
@@ -29,7 +32,6 @@ def add_reverse_edges(data):
     for (dst, rev_rel, src), rev_edge_index in new_edges.items():
         data[(dst, rev_rel, src)].edge_index = rev_edge_index
 
-    print(f"[add_reverse_edges] Added {len(new_edges)} reverse edge types.")
     return data
 
 def join_path_tables(db, path):
@@ -228,4 +230,48 @@ def split_node_labels(graph, node_type: str, label_key: str = 'y',
     graph[node_type]['train_mask'][train_idx] = True
     graph[node_type]['val_mask'][val_idx] = True
     graph[node_type]['test_mask'][test_idx] = True
+
+
+text_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+def encode_table(df):
+    """
+    Encodes a DataFrame into a feature matrix with simple column-wise rules:
+    - Numeric: z-score
+    - Categorical: label encoding (as integers)
+    - Text: average word embedding
+    Returns: torch.FloatTensor of shape [num_rows, total_dim]
+    """
+    features = []
+    scalers = {}
+    label_encoders = {}
+    
+    for col in df.columns:
+        col_data = df[col]
+        if col_data.dtype == object or col_data.dtype.name == "category":
+            if col_data.str.len().mean() > 20:
+                # Probably a text field
+                # Use sentence embeddings
+                emb = text_model.encode(col_data.fillna("").tolist(), convert_to_tensor=True)
+                features.append(emb)
+            else:
+                # Categorical, label encode
+                le = LabelEncoder()
+                encoded = le.fit_transform(col_data.fillna("MISSING"))
+                features.append(torch.tensor(encoded, dtype=torch.float).unsqueeze(1))
+                label_encoders[col] = le
+        elif np.issubdtype(col_data.dtype, np.number):
+            # Numeric, z-score
+            scaler = StandardScaler()
+            normed = scaler.fit_transform(col_data.fillna(0).values.reshape(-1, 1))
+            features.append(torch.tensor(normed, dtype=torch.float))
+            scalers[col] = scaler
+        else:
+            # Fallback: ignore
+            continue
+
+    if features:
+        return torch.cat(features, dim=1)
+    else:
+        return torch.ones((len(df), 1))  # fallback dummy feature
 

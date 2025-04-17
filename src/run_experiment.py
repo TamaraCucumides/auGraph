@@ -19,8 +19,6 @@ task_table = "users"
 num_classes = 3
 labels = create_random_dict(200, num_classes) #TODO: change this into a df
 
-print("LABELS", labels)
-
 # --- 3. Build FK graph ---
 graph, node_id_map = build_fk_graph(db)
 

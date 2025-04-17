@@ -1,5 +1,5 @@
 from data_loader import load_relational_data
-from utils import add_reverse_edges
+from utils import add_reverse_edges, encode_table
 from torch_geometric.data import HeteroData
 import torch
 import pandas as pd
@@ -37,14 +37,12 @@ def build_fk_graph(db):
             for fk in db.foreign_keys
         )
 
-        if not is_bridge:
-            # Assign one-hot features to entity tables
-            # TODO: change after with some nice encoding
-            data[table_name].x = torch.eye(num_nodes)
-        else:
-            # Assign small dummy features to bridge tables
+        try:
+            features = encode_table(df.drop(columns=[pk]))
+            data[table_name].x = features
+        except Exception as e:
+            print(f"[build_fk_graph] Encoding failed for {table_name}: {e}")
             data[table_name].x = torch.ones((num_nodes, 1))
-            print(f"[build_fk_graph] Added dummy features to bridge table '{table_name}'")
 
     # --- Step 2: Add foreign key edges ---
     for src_table, src_col, dst_table, dst_col in db.foreign_keys:
@@ -161,6 +159,23 @@ if __name__ == "__main__":
     print(graph)
     db.print_schema()
 
+    for node_type in graph.node_types:
+        x = graph[node_type].x
+        print(f"\nNode type: {node_type}")
+        print(f"Shape: {x.shape}")
+        
+        # Check for dummy features
+        is_one_hot = torch.all((x @ x.T == torch.eye(x.size(0))).float()).item() if x.size(1) == x.size(0) else False
+        is_constant = torch.allclose(x, x[0].expand_as(x))
+
+        print(f"Is one-hot? {is_one_hot}")
+        print(f"Is constant? {is_constant}")
+        print(f"Mean: {x.mean().item():.4f}, Std: {x.std().item():.4f}")
+
+"""     # Print a small sample
+    print("First few rows:")
+    print(x[:3])
+
     # 2. Promote with inplace=False (should NOT change the original graph)
     print("\n[Test 1] Promote attribute with inplace=False")
     graph_copy = promote_attribute(
@@ -194,5 +209,5 @@ if __name__ == "__main__":
 
     # 4. Inspect schema (should be unchanged unless modify_db=True was used)
     print("\n[Current Schema]")
-    db.print_schema()
+    db.print_schema() """
 
