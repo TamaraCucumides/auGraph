@@ -11,6 +11,27 @@ def create_random_dict(n, num_classes, seed=42):
     random.seed(seed)  # Set the seed for reproducibility
     return {i: random.randint(1, num_classes) for i in range(1, n + 1)}
 
+def add_reverse_edges(data):
+    """
+    Adds reverse edge types to a HeteroData graph in-place.
+    Skips any edge whose relation name starts with 'rev_' to avoid double reversal.
+    """
+    new_edges = {}
+    for (src, rel, dst) in data.edge_types:
+        if rel.startswith('rev_'):
+            continue  # Already reversed, skip
+
+        edge_index = data[(src, rel, dst)].edge_index
+        rev_edge_index = edge_index.flip(0)
+        rev_rel = f"rev_{rel}"
+        new_edges[(dst, rev_rel, src)] = rev_edge_index
+
+    for (dst, rev_rel, src), rev_edge_index in new_edges.items():
+        data[(dst, rev_rel, src)].edge_index = rev_edge_index
+
+    print(f"[add_reverse_edges] Added {len(new_edges)} reverse edge types.")
+    return data
+
 def join_path_tables(db, path):
     """
     Join tables along the given FK path in order.

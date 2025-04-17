@@ -1,4 +1,5 @@
 from data_loader import load_relational_data
+from utils import add_reverse_edges
 from torch_geometric.data import HeteroData
 import torch
 import pandas as pd
@@ -6,7 +7,7 @@ import copy
 
 def build_fk_graph(db):
     """
-    Build a heterogeneous graph from the relational database using PyTorch Geometric.
+    Build a heterogeneous graph from the relational database.
 
     Args:
         db (RelationalDatabase): The relational schema and data.
@@ -16,7 +17,7 @@ def build_fk_graph(db):
         node_id_maps (dict): Maps table -> {pk_value: node_index}
     """
     data = HeteroData()
-    node_id_maps = {}  # Maps: table_name → {primary_key_value → local node index}
+    node_id_maps = {}  # Maps: table_name → {pk_value: node_index}
 
     # --- Step 1: Add node types ---
     for table_name, df in db.tables.items():
@@ -27,10 +28,23 @@ def build_fk_graph(db):
         id_map = {pkv: idx for idx, pkv in enumerate(pk_values)}
         node_id_maps[table_name] = id_map
 
-        # Create dummy one-hot features, replace later with proper embedding
         num_nodes = len(df)
-        data[table_name].x = torch.eye(num_nodes)
         data[table_name].node_ids = torch.tensor(pk_values)
+
+        # Heuristic: bridge tables usually appear only as FK sources
+        is_bridge = all(
+            fk[0] == table_name and fk[2] != table_name
+            for fk in db.foreign_keys
+        )
+
+        if not is_bridge:
+            # Assign one-hot features to entity tables
+            # TODO: change after with some nice encoding
+            data[table_name].x = torch.eye(num_nodes)
+        else:
+            # Assign small dummy features to bridge tables
+            data[table_name].x = torch.ones((num_nodes, 1))
+            print(f"[build_fk_graph] Added dummy features to bridge table '{table_name}'")
 
     # --- Step 2: Add foreign key edges ---
     for src_table, src_col, dst_table, dst_col in db.foreign_keys:
@@ -56,7 +70,19 @@ def build_fk_graph(db):
         edge_type = (src_table, f"{src_col}_to_{dst_col}", dst_table)
         data[edge_type].edge_index = edge_index
 
+    # --- Step 3: Ensure all node types have x ---
+    for node_type in data.node_types:
+        x = data[node_type].x
+        if x is None or not isinstance(x, torch.Tensor):
+            num_nodes = data[node_type].num_nodes
+            data[node_type].x = torch.ones((num_nodes, 1))
+            print(f"[build_fk_graph] Fallback: added dummy features to '{node_type}'")
+
+    # --- Step 4: Add reverse edges ---
+    data = add_reverse_edges(data)
+
     return data, node_id_maps
+
 
 def promote_attribute(
     graph,
@@ -69,18 +95,7 @@ def promote_attribute(
 ):
     """
     Promote a categorical attribute into a node type and connect entities to their attribute values.
-
-    Args:
-        graph (HeteroData): Current heterogeneous graph.
-        db (RelationalDatabase): Database containing tables and schema.
-        table (str): Table where the attribute is defined.
-        attribute (str): Attribute to promote.
-        node_id_map (dict): Maps each table to {primary_key_value -> node index}.
-        modify_db (bool): Whether to update db with virtual table + FK.
-        inplace (bool): If True, modifies the graph in place; otherwise returns a copy.
-
-    Returns:
-        HeteroData: either the modified graph or a copy, depending on `inplace`.
+    Ensures new attribute node type has valid `.x` features.
     """
     if not inplace:
         graph = copy.deepcopy(graph)
@@ -88,17 +103,22 @@ def promote_attribute(
     df = db.get_table(table)
     pk = db.primary_keys[table]
 
-    # Get all unique attribute values
+    # Get all unique non-null values
     values = df[attribute].dropna().unique().tolist()
     value_to_index = {val: idx for idx, val in enumerate(values)}
 
-    # Add new node type for attribute values
-    num_values = len(values)
     attr_node_type = attribute
-    graph[attr_node_type].x = torch.eye(num_values)
-    graph[attr_node_type].value_strings = values
+    num_values = len(values)
 
-    # Create edges: (entity → attribute value)
+    # Create one-hot or dummy feature for attribute nodes
+    if num_values > 0:
+        graph[attr_node_type].x = torch.eye(num_values)
+        graph[attr_node_type].value_strings = values
+    else:
+        graph[attr_node_type].x = torch.ones((1, 1))  # fallback for edge cases
+        graph[attr_node_type].value_strings = []
+
+    # Create edges from entity to attribute value node
     src_nodes, dst_nodes = [], []
 
     for _, row in df.iterrows():
@@ -112,9 +132,12 @@ def promote_attribute(
             src_nodes.append(src_idx)
             dst_nodes.append(dst_idx)
 
-    edge_index = torch.tensor([src_nodes, dst_nodes], dtype=torch.long)
-    edge_type = (table, f"has_{attribute}", attribute)
-    graph[edge_type].edge_index = edge_index
+    if len(src_nodes) > 0:
+        edge_index = torch.tensor([src_nodes, dst_nodes], dtype=torch.long)
+        edge_type = (table, f"has_{attribute}", attribute)
+        graph[edge_type].edge_index = edge_index
+    else:
+        print(f"[promote_attribute] WARNING: No valid edges for attribute '{attribute}'")
 
     if modify_db:
         attr_df = pd.DataFrame({f"{attribute}_id": values})
@@ -122,13 +145,16 @@ def promote_attribute(
         db.primary_keys[attribute] = f"{attribute}_id"
         db.foreign_keys.append((table, attribute, attribute, f"{attribute}_id"))
 
+    # --- Step 4: Add reverse edges ---
+    graph = add_reverse_edges(graph)
+
     return graph
 
 if __name__ == "__main__":
     print("=== Graph Builder Test ===")
 
     # 1. Load the database and build the initial graph
-    db = load_relational_data("data/toy")
+    db = load_relational_data("data/synthetic")
     graph, id_maps = build_fk_graph(db)
 
     print("\n[Original Graph]")
@@ -140,8 +166,8 @@ if __name__ == "__main__":
     graph_copy = promote_attribute(
         graph,
         db,
-        table="customers",
-        attribute="occupation",
+        table="users",
+        attribute="region",
         node_id_map=id_maps,
         modify_db=False,
         inplace=False
@@ -156,8 +182,8 @@ if __name__ == "__main__":
     graph = promote_attribute(
         graph,
         db,
-        table="customers",
-        attribute="occupation",
+        table="users",
+        attribute="region",
         node_id_map=id_maps,
         modify_db=False,
         inplace=True
