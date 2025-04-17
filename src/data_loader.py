@@ -83,7 +83,6 @@ class RelationalDatabase:
         """
         if not hasattr(self, "schema_graph"):
             # Build if not yet initialized
-            import networkx as nx
             self.schema_graph = nx.Graph()
             for src, _, dst, _ in self.foreign_keys:
                 self.schema_graph.add_edge(src, dst)

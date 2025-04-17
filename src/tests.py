@@ -159,7 +159,6 @@ print(f"Label Entropy Gain (products.category): {score2:.4f}") """
 from data_loader import load_relational_data
 from graph_building import build_fk_graph
 from augmentor import augment_graph
-import networkx as nx
 
 print("### Start test script ###")
 
@@ -179,11 +178,6 @@ labels = {
     5: 1   # Eve
 }
 
-# --- 3. Build schema graph (for FK logic) ---
-db.schema_graph = nx.Graph()
-for src, _, dst, _ in db.foreign_keys:
-    db.schema_graph.add_edge(src, dst)
-
 # --- 4. Build FK-based PyG graph and node index map ---
 graph, node_id_map = build_fk_graph(db)
 
@@ -196,7 +190,7 @@ aug_graph, selected = augment_graph(
     scoring_method="mutual_info",        # or "mutual_info"
     label_table=task_table,
     label_column=task_label,
-    k_hops=2,                              # 2 * max_depth is a good rule of thumb
+    k_hops=3,                              # 2 * max_depth is a good rule of thumb
     max_attributes=4,
     threshold=0.00,
     max_depth=2,
