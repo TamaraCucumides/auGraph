@@ -86,6 +86,12 @@ def augment_graph(
         max_depth=max_depth
     )
 
+    # initialize gnn if scoring_method is gnn
+    if scoring_method == "gnn":
+        model = None
+    else: 
+        model = None
+
     for _ in range(max_attributes):
         scored = batch_score_attributes(
             graph=graph,
@@ -134,7 +140,7 @@ def augment_graph(
             "num_edge_types": len(graph.edge_types)
         })
 
-    # ✅ Handle logging to file
+    
     if log_path:
         if log_path.endswith(".csv"):
             output_file = log_path

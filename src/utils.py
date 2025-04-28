@@ -1,14 +1,14 @@
 import pandas as pd
 import numpy as np
+import hashlib
+import random
+import torch
 from scipy.stats import entropy
 from collections import deque
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sentence_transformers import SentenceTransformer
-#from torch_geometric.utils import k_hop_subgraph #relevant for optimizing after, probably
-import torch
 from torch_geometric.data import HeteroData
-import random
-
+from torch_geometric.utils import k_hop_subgraph
 
 def create_random_dict(n, num_classes, seed=42):
     random.seed(seed)  # Set the seed for reproducibility
@@ -199,8 +199,8 @@ def assign_node_labels(graph: HeteroData,
 
 
 def split_node_labels(graph, node_type: str, label_key: str = 'y',
-                      train_ratio=0.6, val_ratio=0.2, test_ratio=0.2,
-                      seed=42):
+                      train_ratio=0.5, val_ratio=0.25, test_ratio=0.25,
+                      seed=36):
     """
     Randomly splits labeled nodes into train/val/test masks.
 
@@ -274,4 +274,128 @@ def encode_table(df):
         return torch.cat(features, dim=1)
     else:
         return torch.ones((len(df), 1))  # fallback dummy feature
+
+
+def extract_local_subgraph(graph, target_table, target_pks, node_id_map, k_hops):
+    """
+    Extracts k-hop heterogeneous subgraph around target_table nodes.
+    Includes all node types and all edge types reachable in k hops.
+    """
+
+    # Step 1: Find initial node indices
+    target_indices = torch.tensor([node_id_map[target_table][pk] for pk in target_pks], dtype=torch.long)
+
+    # Step 2: Collect neighbors
+    all_nodes = {table: set() for table in graph.node_types}
+    all_nodes[target_table].update(target_indices.tolist())
+
+    frontier = {target_table: target_indices}
+    for hop in range(k_hops):
+        next_frontier = {table: set() for table in graph.node_types}
+        for (src_type, rel_type, dst_type) in graph.edge_types:
+            edges = graph[(src_type, rel_type, dst_type)].edge_index
+            # Check if any src nodes are in the current frontier
+            if src_type in frontier:
+                src_nodes = frontier[src_type]
+                mask = torch.isin(edges[0], src_nodes)
+                neighbors = edges[1][mask]
+                next_frontier[dst_type].update(neighbors.tolist())
+            # Check if any dst nodes are in the current frontier (for reverse edges)
+            if dst_type in frontier:
+                dst_nodes = frontier[dst_type]
+                mask = torch.isin(edges[1], dst_nodes)
+                neighbors = edges[0][mask]
+                next_frontier[src_type].update(neighbors.tolist())
+        # Update frontier
+        for table in graph.node_types:
+            all_nodes[table].update(next_frontier[table])
+        frontier = {table: torch.tensor(list(nodes)) for table, nodes in next_frontier.items() if nodes}
+
+    # Step 3: Prepare subgraph nodes
+    all_nodes = {table: list(nodes) for table, nodes in all_nodes.items() if nodes}  # sets -> lists
+
+    all_nodes_mask = {}
+
+    for node_type in graph.node_types:
+        if node_type in all_nodes:
+            num_nodes = graph[node_type].num_nodes
+            mask = torch.zeros(num_nodes, dtype=torch.bool)
+
+            selected_nodes = all_nodes[node_type]
+
+            # Convert to tensor if not already
+            if not isinstance(selected_nodes, torch.Tensor):
+                selected_nodes = torch.tensor(selected_nodes, dtype=torch.long)
+
+            mask[selected_nodes] = True
+            all_nodes_mask[node_type] = mask
+
+    # Step 4: Extract subgraph
+    subgraph = graph.subgraph(all_nodes_mask)
+
+    return subgraph
+
+def run_local_wl(graph, target_table, target_pks, node_id_map, num_iterations=2):
+    """
+    1-WL color refinement on heterogeneous graph.
+    """
+
+    # Initialize colors
+    colors = {}
+    for table in graph.node_types:
+        num_nodes = graph[table].num_nodes
+        for node_id in range(num_nodes):
+            colors[(table, node_id)] = 0  # All nodes start with same color
+
+    for _ in range(num_iterations):
+        new_colors = {}
+        for (table, node_id), color in colors.items():
+            neighbor_colors = []
+            for (src_type, rel_type, dst_type) in graph.edge_types:
+                edges = graph[(src_type, rel_type, dst_type)].edge_index
+                if src_type == table:
+                    mask = (edges[0] == node_id)
+                    neighbors = edges[1][mask]
+                    neighbor_colors.extend([(dst_type, int(n.item())) for n in neighbors])
+                if dst_type == table:
+                    mask = (edges[1] == node_id)
+                    neighbors = edges[0][mask]
+                    neighbor_colors.extend([(src_type, int(n.item())) for n in neighbors])
+
+            # Build color signature
+            neighbor_colors_sorted = sorted([colors.get((n_type, n_id), -1) for n_type, n_id in neighbor_colors])
+            combined = (color, tuple(neighbor_colors_sorted))
+            combined_str = str(combined).encode('utf-8')
+            color_hash = hashlib.md5(combined_str).hexdigest()
+            new_colors[(table, node_id)] = color_hash
+
+        # Normalize colors to integers
+        unique_colors = sorted(set(new_colors.values()))
+        color_to_id = {c: i for i, c in enumerate(unique_colors)}
+        colors = {node: color_to_id[c] for node, c in new_colors.items()}
+
+    # Return only target_table nodes
+    target_node_indices = [node_id_map[target_table][pk] for pk in target_pks]
+    return {idx: colors[(target_table, idx)] for idx in target_node_indices}
+
+
+def build_node_id_map(graph):
+    """
+    Rebuild a node_id_map from the current graph structure.
+    Maps node type -> {index: index}.
+    """
+    node_id_map = {}
+    for node_type in graph.node_types:
+        num_nodes = graph[node_type].num_nodes
+        node_id_map[node_type] = {i+1: i for i in range(num_nodes)}
+    return node_id_map
+
+def ensure_node_features(graph):
+    for node_type in graph.node_types:
+        if 'x' not in graph[node_type]:
+            num_nodes = graph[node_type].num_nodes
+            graph[node_type].x = torch.zeros((num_nodes, 1))  # minimal dummy feature
+    return graph
+
+
 

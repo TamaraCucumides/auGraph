@@ -124,11 +124,11 @@ def load_relational_data(data_dir: str) -> RelationalDatabase:
 
 if __name__ == "__main__":
     print("Data loader test")
-    db = load_relational_data("data/toy")
+    db = load_relational_data("data/synthetic")
     db.print_schema()
 
     print("Available attributes for promotion:")
     print(db.get_all_attributes())
 
     print("Max depth = 2")
-    print(db.get_all_attributes(label_table="customers", max_depth=2))
+    print(db.get_all_attributes(label_table="dispat", max_depth=2))

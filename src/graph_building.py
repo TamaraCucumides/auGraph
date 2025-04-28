@@ -111,12 +111,13 @@ def promote_attribute(
     # Create one-hot or dummy feature for attribute nodes
     if num_values > 0:
         graph[attr_node_type].x = torch.eye(num_values)
-        graph[attr_node_type].value_strings = values
     else:
         graph[attr_node_type].x = torch.ones((1, 1))  # fallback for edge cases
-        graph[attr_node_type].value_strings = []
 
-    # Create edges from entity to attribute value node
+
+    # store strings, outside the tensor structure
+    graph[f'{attr_node_type}_strings'] = values  # separate field, not inside node type!
+
     src_nodes, dst_nodes = [], []
 
     for _, row in df.iterrows():
@@ -143,10 +144,17 @@ def promote_attribute(
         db.primary_keys[attribute] = f"{attribute}_id"
         db.foreign_keys.append((table, attribute, attribute, f"{attribute}_id"))
 
-    # --- Step 4: Add reverse edges ---
+    # Add reverse edges
     graph = add_reverse_edges(graph)
 
+    # Ensure node features
+    for node_type in graph.node_types:
+        if 'x' not in graph[node_type]:
+            num_nodes = graph[node_type].num_nodes
+            graph[node_type].x = torch.zeros((num_nodes, 1))
+
     return graph
+
 
 if __name__ == "__main__":
     print("=== Graph Builder Test ===")
@@ -154,6 +162,8 @@ if __name__ == "__main__":
     # 1. Load the database and build the initial graph
     db = load_relational_data("data/synthetic")
     graph, id_maps = build_fk_graph(db)
+
+    print("ID maps", id_maps)
 
     print("\n[Original Graph]")
     print(graph)

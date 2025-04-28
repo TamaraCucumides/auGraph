@@ -1,23 +1,18 @@
 # training.py
-
+import copy
 import torch
 import torch.nn.functional as F
 
 def train_model(model, graph, node_type, optimizer, loss_fn, epochs=30, verbose=True):
     """
-    Train a node classification model on a HeteroData graph.
+    Train a node classification model on a HeteroData graph, tracking best validation accuracy.
 
-    Args:
-        model: the GNN model
-        graph: PyG HeteroData object with .y and .train_mask on `node_type`
-        node_type: the node type to train on (e.g., 'users')
-        optimizer: any PyTorch optimizer
-        loss_fn: loss function (e.g., CrossEntropyLoss)
-        epochs: number of training steps
-        verbose: print progress if True
     Returns:
-        model: the trained model
+        model: the best model (according to validation accuracy)
     """
+    best_val_acc = 0.0
+    best_model_state = None
+
     for epoch in range(1, epochs + 1):
         model.train()
         optimizer.zero_grad()
@@ -29,9 +24,16 @@ def train_model(model, graph, node_type, optimizer, loss_fn, epochs=30, verbose=
         loss.backward()
         optimizer.step()
 
+        val_acc = evaluate_model(model, graph, node_type, split="val")
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_model_state = copy.deepcopy(model.state_dict())
+
         if verbose:
-            val_acc = evaluate_model(model, graph, node_type, split="val")
             print(f"Epoch {epoch:02d} | Loss: {loss.item():.4f} | Val Acc: {val_acc:.4f}")
+
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
 
     return model
 
