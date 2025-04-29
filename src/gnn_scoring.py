@@ -1,5 +1,101 @@
-from graph_building import promote_attribute
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torch_geometric.nn import SAGEConv
+import copy
+from models import GNN
+from graph_building import promote_attribute
+
+def initialize_gnn_model(graph, target_table, num_classes, hidden_dim=64):
+    """
+    Initialize a GNN model for relational graph.
+
+    Args:
+        graph: HeteroData graph object.
+        target_table: Table for prediction task.
+        num_classes: Number of output classes.
+        hidden_dim: Hidden dimension size.
+
+    Returns:
+        GNN model (untrained)
+    """
+    model = GNN(
+        metadata=graph.metadata(),
+        hidden_channels=hidden_dim,
+        out_channels=num_classes,
+        target_node=target_table
+    )
+    return model
+
+def pretrain_gnn_model(
+    model,
+    graph,
+    target_table,
+    epochs=20,
+    lr=0.01,
+    verbose=True
+):
+    """
+    Pre-train GNN model on original FK graph.
+
+    Args:
+        model: Initialized GNN model.
+        graph: HeteroData graph.
+        target_table: Table where labels live.
+        epochs: Number of training epochs.
+        lr: Learning rate.
+        verbose: Whether to print training info.
+
+    Returns:
+        Pretrained, frozen GNN model (in eval mode).
+    """
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    loss_fn = torch.nn.CrossEntropyLoss()
+
+    model.train()
+    for epoch in range(epochs):
+        optimizer.zero_grad()
+        #out = model(graph.x_dict, graph.edge_index_dict)
+        #preds = out[target_table]
+        out = model(graph.x_dict, graph.edge_index_dict)
+        preds = out  # already predictions for target_table
+        labels = graph[target_table].y
+        mask = graph[target_table].train_mask
+
+        loss = loss_fn(preds[mask], labels[mask])
+        loss.backward()
+        optimizer.step()
+
+        if verbose and (epoch % 5 == 0 or epoch == epochs-1):
+            print(f"Epoch {epoch:03d}, Loss: {loss.item():.4f}")
+
+    model.eval()
+    for param in model.parameters():
+        param.requires_grad = False
+
+    return model
+
+def make_eval_function(target_table):
+    def eval_fn(model, graph):
+        model.eval()
+        with torch.no_grad():
+            out = model(graph.x_dict, graph.edge_index_dict)
+            preds = out
+            labels = graph[target_table].y
+            mask = graph[target_table].val_mask
+
+            preds = preds[mask]
+            labels = labels[mask]
+
+            if preds.size(0) == 0:
+                return 0.0
+
+            acc = (preds.argmax(dim=1) == labels).float().mean().item()
+        return acc  # Higher is better
+    return eval_fn
 
 class IdentityMessage(nn.Module):
     def __init__(self):
@@ -7,52 +103,30 @@ class IdentityMessage(nn.Module):
     def forward(self, x, edge_index, *args, **kwargs):
         return x
 
-
 def gnn_gain_score(
-    gnn_model,
     graph,
     db,
     table: str,
     attribute: str,
     labels: dict,
-    target_table: str,
-    node_id_map: dict,
+    gnn_model,
     eval_fn,
-    feature_dim: int,
+    node_id_map,
+    target_table,
+    feature_dim,
     device=None,
     **kwargs
 ) -> float:
-    """
-    Evaluate pretrained GNN on promoted graph and compute gain in performance.
-
-    Args:
-        gnn_model: Pretrained GNN (frozen).
-        graph: Original graph (HeteroData).
-        db: Relational database object (to access schema).
-        table: Table name where attribute lives.
-        attribute: Attribute name.
-        labels: dict mapping primary keys to labels.
-        target_table: Table to predict on.
-        node_id_map: Table → {pk → node_id}.
-        eval_fn: Function to evaluate model (higher is better).
-        feature_dim: Dimensionality of node features.
-        device: torch.device.
-
-    Returns:
-        float: Performance gain (positive is better).
-    """
-    import torch
-    import copy
 
     if device is None:
         device = next(gnn_model.parameters()).device
 
-    # 1. Evaluate on original graph
+    # 1. Evaluate on the original graph
     gnn_model.eval()
     with torch.no_grad():
         score_before = eval_fn(gnn_model, graph)
 
-    # 2. Promote the attribute
+    # 2. Promote the attribute (augment the graph)
     graph_aug = promote_attribute(
         graph,
         db,
@@ -63,28 +137,31 @@ def gnn_gain_score(
         inplace=False
     )
 
-    # 3. Prepare the augmented graph for evaluation
     graph_aug = graph_aug.to(device)
 
-    # 4. Make sure all nodes have features
+    # 3. Make sure all nodes have features
     for node_type in graph_aug.node_types:
         if not hasattr(graph_aug[node_type], 'x') or graph_aug[node_type].x is None:
-            # Create dummy features
             num_nodes = graph_aug[node_type].num_nodes
             graph_aug[node_type].x = torch.zeros((num_nodes, feature_dim), device=device)
 
-    # 5. Handle missing edge types gracefully
-    gnn_model_aug = copy.deepcopy(gnn_model)  # Work on a temp copy (safe)
+    # 4. 🛡 PATCH the GNN model to handle new edge types
+    gnn_model_aug = copy.deepcopy(gnn_model)
 
-    for edge_type in graph_aug.edge_types:
-        if edge_type not in gnn_model_aug.message_passing_modules:
-            # Patch: assign an identity message passing module
-            gnn_model_aug.message_passing_modules[edge_type] = IdentityMessage()
+    if hasattr(gnn_model_aug, "convs") and isinstance(gnn_model_aug.convs, nn.ModuleList):
+        for edge_type in graph_aug.edge_types:
+            if edge_type not in gnn_model_aug.convs[0].convs:
+                print(f"Adding real SAGEConv for unseen edge type {edge_type}")
+                for conv_layer in gnn_model_aug.convs:
+                    conv_layer.convs[edge_type] = SAGEConv(
+                        (-1, -1), 
+                        conv_layer.convs[list(conv_layer.convs.keys())[0]].out_channels
+                    )
 
-    # 6. Evaluate on the augmented graph
+    # 5. Evaluate on the augmented graph
     gnn_model_aug.eval()
     with torch.no_grad():
         score_after = eval_fn(gnn_model_aug, graph_aug)
 
+    # 6. Return gain
     return score_after - score_before
-

@@ -26,6 +26,7 @@ labels = dict(zip(task['m_id'], task['Type']))
 
 # --- 3. Build FK graph ---
 graph, node_id_map = build_fk_graph(db)
+feature_dim = graph[task_table].x.size(-1)
 
 # --- 3b. Assign full labels to FK-graph for splitting ---
 assign_node_labels(graph, labels, node_id_map, node_type=task_table)

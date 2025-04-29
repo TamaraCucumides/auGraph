@@ -397,5 +397,46 @@ def ensure_node_features(graph):
             graph[node_type].x = torch.zeros((num_nodes, 1))  # minimal dummy feature
     return graph
 
+def log_promotion_step(
+    logger,
+    step,
+    table,
+    attribute,
+    score,
+    method,
+    k_hops,
+    graph,
+    label_table
+):
+    """
+    Appends promotion step info into logger.
+
+    Args:
+        logger: list of dicts (grows over steps)
+        step: promotion step index (int)
+        table: table name (str)
+        attribute: attribute name (str)
+        score: score value (float)
+        method: scoring method name (str)
+        k_hops: hops considered (int)
+        graph: current graph (HeteroData)
+        label_table: table where prediction happens
+
+    Returns:
+        None (modifies logger in-place)
+    """
+    log_entry = {
+        "step": step,
+        "table": table,
+        "attribute": attribute,
+        "score": score,
+        "method": method,
+        "k_hops": k_hops,
+        "num_node_types": len(graph.node_types),
+        "num_edge_types": len(graph.edge_types),
+        "num_target_nodes": graph[label_table].num_nodes,
+    }
+    logger.append(log_entry)
+
 
 
