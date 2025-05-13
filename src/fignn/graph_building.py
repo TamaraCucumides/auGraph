@@ -1,5 +1,5 @@
-from data_loader import load_relational_data
-from utils import add_reverse_edges, encode_table
+from fignn.data_loader import load_relational_data
+from fignn.utils import add_reverse_edges, encode_table
 from torch_geometric.data import HeteroData
 import torch
 import pandas as pd

@@ -1,11 +1,10 @@
 from sklearn.metrics import mutual_info_score as sklearn_mi
 from scipy.stats import entropy as scipy_entropy
-from gnn_scoring import gnn_gain_score
-from utils import join_path_tables, get_label_entropies, run_local_wl, extract_local_subgraph, build_node_id_map
-from graph_building import promote_attribute
+from fignn.gnn_scoring import gnn_gain_score
+from fignn.utils import join_path_tables, get_label_entropies, run_local_wl, extract_local_subgraph, build_node_id_map
+from fignn.graph_building import promote_attribute
 import networkx as nx
 import pandas as pd
-import itertools
 
 def score_attribute(
     graph,
@@ -312,8 +311,8 @@ def edge_disagreement(
     return agreement_score
 
 if __name__ == "__main__":
-    from data_loader import load_relational_data
-    from graph_building import build_fk_graph
+    from fignn.data_loader import load_relational_data
+    from fignn.graph_building import build_fk_graph
     import os
 
     scoring_method = "edge_disagreement"

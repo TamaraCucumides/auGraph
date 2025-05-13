@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import SAGEConv
 import copy
-from models import GNN
-from graph_building import promote_attribute
+from fignn.models import GNN
+from fignn.graph_building import promote_attribute
 
 def initialize_gnn_model(graph, target_table, num_classes, hidden_dim=64):
     """

@@ -1,11 +1,11 @@
-from data_loader import load_relational_data
-from graph_building import build_fk_graph, promote_attribute
-from augmentor import augment_graph
-from utils import assign_node_labels, split_node_labels
-from models import GNN
+from fignn.data_loader import load_relational_data
+from fignn.graph_building import build_fk_graph, promote_attribute
+from fignn.augmentor import augment_graph
+from fignn.utils import assign_node_labels, split_node_labels
+from fignn.models import GNN
 import pandas as pd
 import os
-from training import train_model, evaluate_model
+from fignn.training import train_model, evaluate_model
 import torch
 
 print("### Start test script ###")

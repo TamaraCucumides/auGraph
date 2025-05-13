@@ -1,7 +1,7 @@
-from scoring import score_attribute
-from utils import log_promotion_step
-from graph_building import promote_attribute
-from gnn_scoring import initialize_gnn_model, pretrain_gnn_model, make_eval_function
+from fignn.scoring import score_attribute
+from fignn.utils import log_promotion_step
+from fignn.graph_building import promote_attribute
+from fignn.gnn_scoring import initialize_gnn_model, pretrain_gnn_model, make_eval_function
 
 import pandas as pd
 import os
@@ -201,10 +201,10 @@ def augment_graph(
 
 
 if __name__ == "__main__":
-    from data_loader import load_relational_data
-    from graph_building import build_fk_graph
-    from utils import assign_node_labels, split_node_labels
-    from augmentor import augment_graph
+    from fignn.data_loader import load_relational_data
+    from fignn.graph_building import build_fk_graph
+    from fignn.utils import assign_node_labels, split_node_labels
+    from fignn.augmentor import augment_graph
     import torch
     import pandas as pd
     import os
