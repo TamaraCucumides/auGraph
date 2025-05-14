@@ -69,7 +69,7 @@ def run_random_promoted(graph, db, node_id_map, task_table, labels, available_at
     train_and_evaluate(model, aug_graph, task_table, optimizer, loss_fn, tag=tag, log_filename=f"results/synthetic-random-k{k}.txt")
 
 def run_fignn(graph, db, node_id_map, labels_trainval, task_table, num_classes, k=3):
-    for method in ["edge_disagreement", "mutual_info", "entropy_gain", "gnn_gain"]: #add wl_gain
+    for method in ["mutual_info", "entropy_gain", "gnn_gain", "edge_disagreement"]: #add wl_gain
         aug_graph, attrs = augment_graph(
                 db=db,
                 initial_graph=graph,

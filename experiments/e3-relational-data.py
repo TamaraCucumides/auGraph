@@ -57,7 +57,7 @@ def run_all_promoted(graph, db, task_table, node_id_map, labels, available_attri
     model = GNN(metadata=aug_graph.metadata(), hidden_channels=64, out_channels=num_classes, target_node=task_table).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     loss_fn = torch.nn.CrossEntropyLoss()
-    train_and_evaluate(model, aug_graph, task_table, optimizer, loss_fn, tag="All-Promoted", log_filename="results/synthetic-all-promoted.txt")
+    train_and_evaluate(model, aug_graph, task_table, optimizer, loss_fn, tag="All-Promoted", log_filename="results/relational-all-promoted.txt")
 
 def run_random_promoted(graph, db, node_id_map, task_table, labels, available_attributes, num_classes, k):
     aug_graph = promote_random_k(graph, db, node_id_map, available_attributes, k)
@@ -66,7 +66,7 @@ def run_random_promoted(graph, db, node_id_map, task_table, labels, available_at
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     loss_fn = torch.nn.CrossEntropyLoss()
     tag = f"Random-{k}-Promoted"
-    train_and_evaluate(model, aug_graph, task_table, optimizer, loss_fn, tag=tag, log_filename=f"results/synthetic-random-k{k}.txt")
+    train_and_evaluate(model, aug_graph, task_table, optimizer, loss_fn, tag=tag, log_filename=f"results/relational-random-k{k}.txt")
 
 def run_fignn(graph, db, node_id_map, labels_trainval, task_table, num_classes, k=3):
     for method in ["mutual_info", "entropy_gain", "gnn_gain", "edge_disagreement"]: #add wl_gain
