@@ -1,4 +1,4 @@
-# From Features to Structure: Task-Aware Graph Construction for Relational and Tabular Learning
+# auGraph: Augmenting graphs for Relational and tabular Learning
 
 Tamara Cucumides, Floris Geerts
 
