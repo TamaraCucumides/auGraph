@@ -1,4 +1,4 @@
-# FiGNN: Feature-informed Graphs for Relational Deep Learning
+# From Features to Structure: Task-Aware Graph Construction for Relational and Tabular Learning
 
 Tamara Cucumides, Floris Geerts
 
