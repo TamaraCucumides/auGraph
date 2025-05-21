@@ -80,11 +80,20 @@ def mutual_info_score(
 
     if table == target_table:
         df = db.get_table(table)[[attribute, pk_target]].copy()
+        
         if not pd.api.types.is_categorical_dtype(df[attribute]) and not pd.api.types.is_object_dtype(df[attribute]):
             return 0.0
+
         df = df.merge(label_df, on=pk_target, how="inner")
+
         if df.empty:
             return 0.0
+
+        # Drop rows with missing values in attribute or label
+        df = df[[attribute, label_col]].dropna()
+        if df.empty:
+            return 0.0
+
         mi = sklearn_mi(df[attribute], df[label_col])
         ent_attr = scipy_entropy(df[attribute].value_counts(normalize=True))
         return mi / ent_attr if ent_attr > 0 else 0.0

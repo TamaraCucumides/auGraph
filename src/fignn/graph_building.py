@@ -82,6 +82,40 @@ def build_fk_graph(db):
     return data, node_id_maps
 
 
+def build_tabular_graph(df, table_name='main', pk=None):
+    """
+    Constructs a node-only HeteroData graph from a single flat table.
+    
+    Args:
+        df (pd.DataFrame): The input table.
+        table_name (str): Name for the node type.
+        pk (str or None): Name of the primary key column. If None, uses df.index.
+
+    Returns:
+        data (HeteroData): A graph with nodes (rows) and no edges.
+        node_id_map (dict): pk_value → node_index
+    """
+    data = HeteroData()
+
+    if pk is None:
+        pk_values = df.index.tolist()
+    else:
+        pk_values = df[pk].tolist()
+        df = df.set_index(pk)
+
+    node_id_map = {pkv: idx for idx, pkv in enumerate(pk_values)}
+    data[table_name].node_ids = torch.tensor(pk_values)
+
+    try:
+        features = encode_table(df)
+        data[table_name].x = features
+    except Exception as e:
+        print(f"[build_tabular_graph] Encoding failed for {table_name}: {e}")
+        data[table_name].x = torch.ones((len(df), 1))
+
+    return data, {table_name: node_id_map}
+
+
 def promote_attribute(
     graph,
     db,

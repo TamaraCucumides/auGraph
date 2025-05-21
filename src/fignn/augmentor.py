@@ -163,7 +163,7 @@ def augment_graph(
             table=top_table,
             attribute=top_attr,
             node_id_map=node_id_map,
-            modify_db=True,
+            modify_db=False,
             inplace=False
         )
 

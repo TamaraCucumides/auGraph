@@ -7,42 +7,63 @@ from sklearn.neighbors import NearestNeighbors
 from fignn.utils import encode_table
 
 
-def build_knn_graph(table: pd.DataFrame, table_name: str = "instance", k: int = 10):
+def build_knn_graph(
+    table: pd.DataFrame, 
+    table_name: str = "instance", 
+    k: int = 10,
+    pk: str = None,
+):
     """
-    Build a k-NN graph over rows of a tabular dataset using encode_table().
-    
+    Build a k-NN graph from a tabular dataset.
+
     Args:
-        table (pd.DataFrame): Input table with mixed feature types.
+        table (pd.DataFrame): Input table.
         table_name (str): Node type name.
-        k (int): Number of neighbors for kNN.
-    
+        k (int): Number of nearest neighbors.
+        pk (str, optional): Name of primary key column. If None, uses index.
+
     Returns:
-        HeteroData: Homogeneous graph in HeteroData format.
+        data (HeteroData): Heterogeneous graph with node features and k-NN edges.
+        node_id_map (dict): Maps pk_value → node_index
     """
     data = HeteroData()
 
-    # --- Step 1: Encode features using your logic ---
-    x = encode_table(table)  # Already returns a torch.FloatTensor
-    num_nodes = x.size(0)
-    data[table_name].x = x
-    data[table_name].node_ids = torch.arange(num_nodes)
+    # --- Step 1: Extract and map node IDs ---
+    if pk is None:
+        pk_values = table.index.tolist()
+    else:
+        pk_values = table[pk].tolist()
+        table = table.set_index(pk)
 
-    # --- Step 2: Compute kNN graph ---
+    node_id_map = {pkv: idx for idx, pkv in enumerate(pk_values)}
+    num_nodes = len(pk_values)
+    data[table_name].node_ids = torch.tensor(pk_values)
+
+    # --- Step 2: Encode features ---
+    try:
+        x = encode_table(table)
+    except Exception as e:
+        print(f"[build_knn_graph] Encoding failed: {e}")
+        x = torch.ones((num_nodes, 1))
+
+    data[table_name].x = x
+
+    # --- Step 3: Compute k-NN edges ---
     features_np = x.numpy()
-    nbrs = NearestNeighbors(n_neighbors=k + 1, metric="euclidean").fit(features_np)
-    knn_graph = nbrs.kneighbors(return_distance=False)
+    nn = NearestNeighbors(n_neighbors=min(k + 1, num_nodes), metric="euclidean")
+    knn_graph = nn.fit(features_np).kneighbors(return_distance=False)
 
     edge_index = []
     for src, neighbors in enumerate(knn_graph):
         for dst in neighbors:
-            if src != dst:
+            if src != dst:  # exclude self-loop
                 edge_index.append([src, dst])
 
     edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
     data[(table_name, "knn", table_name)].edge_index = edge_index
 
-    # Optional reverse edges
+    # --- Step 4: Add reverse edges ---
     rev_index = edge_index[[1, 0]]
     data[(table_name, "rev_knn", table_name)].edge_index = rev_index
 
-    return data
+    return data, {table_name: node_id_map}

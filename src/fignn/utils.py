@@ -114,19 +114,17 @@ def join_path_tables(db, path):
 def get_label_entropies(graph, target_table, labels, node_id_map, k_hops):
     """
     Computes average label entropy for each node in the target table over its k-hop neighborhood.
-
-    Args:
-        graph (HeteroData): PyG heterogeneous graph
-        target_table (str): name of the table (node type) with labels
-        labels (dict): maps PK values → label (e.g., {1: 0, 2: 1, ...})
-        node_id_map (dict): table → {pk → node_index}
-        k_hops (int): number of hops to consider for neighborhood
-
-    Returns:
-        float: average neighborhood label entropy across all target_table nodes
     """
     if target_table not in graph.node_types:
         raise ValueError(f"Target node type '{target_table}' not found in graph.")
+
+    if not graph.edge_types:
+        # No edges at all — no neighborhood, so entropy is undefined
+        return 0.0
+
+    edge_index_dict = graph.edge_index_dict
+    if not edge_index_dict:
+        return 0.0
 
     index_to_label = {
         node_id_map[target_table][pk]: lbl
@@ -134,29 +132,32 @@ def get_label_entropies(graph, target_table, labels, node_id_map, k_hops):
         if pk in node_id_map[target_table]
     }
 
-    edge_index_dict = graph.edge_index_dict
     entropies = []
 
     for center_node in index_to_label.keys():
-        # BFS over heterogeneous edges
         visited = set([center_node])
         frontier = deque([center_node])
 
         for _ in range(k_hops):
             next_frontier = set()
             for (src_type, rel, dst_type), edge_index in edge_index_dict.items():
-                # check both directions (src → dst and dst → src)
+                # Skip empty edge tensors
+                if edge_index.numel() == 0:
+                    continue
+
                 for direction in [(0, 1), (1, 0)]:
                     src, dst = edge_index[direction[0]], edge_index[direction[1]]
                     mask = np.isin(src.numpy(), list(frontier))
                     neighbors = dst[mask].tolist()
                     next_frontier.update(neighbors)
+
             frontier = next_frontier - visited
+            if not frontier:
+                break
             visited.update(frontier)
 
-        # Collect labels in the k-hop neighborhood
+        # Collect neighbor labels
         neighbor_labels = [index_to_label[idx] for idx in visited if idx in index_to_label]
-
         if not neighbor_labels:
             continue
 

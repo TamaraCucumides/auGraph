@@ -121,6 +121,35 @@ def load_relational_data(data_dir: str) -> RelationalDatabase:
         primary_keys=schema["primary_keys"]
     )
 
+def load_tabular_data(df: pd.DataFrame, table_name: str = "main", pk: str = None) -> RelationalDatabase:
+    """
+    Wrap a single flat DataFrame into a RelationalDatabase object.
+
+    Args:
+        df (pd.DataFrame): Input single-table data.
+        table_name (str): Name to assign to the table in the schema.
+        pk (str or None): Name of the primary key column. If None, use the index.
+
+    Returns:
+        RelationalDatabase: a minimal wrapper compatible with graph builders.
+    """
+    if pk is None:
+        # Ensure index is named; if not, assign a temp name
+        index_name = df.index.name or "__index__"
+        df = df.copy()
+        df[index_name] = df.index
+        pk = index_name
+
+    tables = {table_name: df}
+    primary_keys = {table_name: pk}
+    foreign_keys = []
+
+    return RelationalDatabase(
+        tables=tables,
+        foreign_keys=foreign_keys,
+        primary_keys=primary_keys
+    )
+
 
 if __name__ == "__main__":
     print("Data loader test")
