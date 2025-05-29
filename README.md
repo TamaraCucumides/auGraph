@@ -1,4 +1,4 @@
-# auGraph: Graphs for Relational and tabular Learning
+# auGraph: Graphs for Relational and Tabular Learning
 Tamara Cucumides, Floris Geerts
 
 ## Prepare your data
